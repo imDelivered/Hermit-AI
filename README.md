@@ -82,7 +82,7 @@ KiwixRAG uses a **Local Multi-Joint Architecture**:
 
 ### Models
 Models are defined in `chatbot/config.py`.
-- **Default Chat Model**: `DavidAU/.../DarkIdol-8B`
+- **Default Chat Model**: `Ishaanlol/.../Aletheia-3B`
 - **RAG/Joint Model**: `Ishaanlol/.../Aletheia-3B`
 
 You can change these to any Hugging Face repo ID containing GGUF files.

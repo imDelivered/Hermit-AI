@@ -6,8 +6,12 @@ Handles downloading GGUF models from Hugging Face and loading them via llama-cpp
 import os
 import sys
 import glob
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 from huggingface_hub import hf_hub_download, list_repo_files
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 try:
     from llama_cpp import Llama
 except ImportError:
@@ -15,6 +19,83 @@ except ImportError:
     print("WARNING: llama-cpp-python not installed. Local inference will fail.")
 
 from chatbot import config
+
+# Global progress callback for GUI integration
+# Signature: callback(status: str, progress: float, total_size: str)
+# - status: "downloading", "loading", "ready", "error"
+# - progress: 0.0 to 1.0 (or -1 for indeterminate)
+# - total_size: human-readable size string like "2.1 GB"
+_download_callback: Optional[Callable[[str, float, str], None]] = None
+
+
+def set_download_callback(callback: Optional[Callable[[str, float, str], None]]) -> None:
+    """Set a callback function to receive download progress updates.
+    
+    Args:
+        callback: Function taking (status, progress, total_size) or None to clear.
+    """
+    global _download_callback
+    _download_callback = callback
+
+
+def _notify_progress(status: str, progress: float = -1, total_size: str = "") -> None:
+    """Internal helper to notify the callback if set."""
+    if _download_callback:
+        try:
+            _download_callback(status, progress, total_size)
+        except Exception:
+            pass  # Don't let callback errors break downloads
+
+
+def _format_size(size_bytes: int) -> str:
+    """Convert bytes to human-readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} PB"
+
+
+class ProgressTqdm:
+    """A tqdm-compatible wrapper that notifies the global callback."""
+    def __init__(self, *args, **kwargs):
+        self._total = kwargs.get('total', 0)
+        self._n = 0
+        self._desc = kwargs.get('desc', 'Downloading')
+        self._unit_scale = kwargs.get('unit_scale', False)
+        
+        # Internal tqdm for terminal output
+        if tqdm:
+            self._tqdm = tqdm(*args, **kwargs)
+        else:
+            self._tqdm = None
+
+    def update(self, n=1):
+        self._n += n
+        if self._tqdm:
+            self._tqdm.update(n)
+        
+        if self._total and self._total > 0:
+            progress = self._n / self._total
+            # Update detail string with % and speed if possible
+            # But the GUI simple handles status, progress, detail.
+            # We want the progress bar to move!
+            _notify_progress("downloading", progress, self._desc)
+
+    def set_description(self, desc, refresh=True):
+        self._desc = desc
+        if self._tqdm:
+            self._tqdm.set_description(desc, refresh)
+
+    def close(self):
+        if self._tqdm:
+            self._tqdm.close()
+            
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
 class ModelManager:
     """Singleton manager for local LLM models."""
@@ -95,6 +176,7 @@ class ModelManager:
 
         # List files in repo
         try:
+            _notify_progress("checking", -1, "")
             files = list_repo_files(repo_id)
             gguf_files = [f for f in files if f.endswith('.gguf')]
             
@@ -116,12 +198,35 @@ class ModelManager:
                 
             print(f"Selected model file: {selected_file}")
             
-            # Download
-            path = hf_hub_download(repo_id=repo_id, filename=selected_file, local_dir=model_dir)
+            # Get file info for progress display
+            try:
+                from huggingface_hub import hf_hub_url, get_hf_file_metadata
+                url = hf_hub_url(repo_id=repo_id, filename=selected_file)
+                metadata = get_hf_file_metadata(url)
+                file_size = metadata.size if metadata.size else 0
+                size_str = _format_size(file_size) if file_size else "unknown size"
+            except Exception:
+                size_str = "unknown size"
+            
+            # Notify GUI that download is starting
+            model_name = repo_id.split('/')[-1] if '/' in repo_id else repo_id
+            _notify_progress("downloading", 0.0, f"{model_name} ({size_str})")
+            print(f"Downloading {model_name} ({size_str})...")
+            
+            # Download with progress bar (tqdm is used by hf_hub internally)
+            path = hf_hub_download(
+                repo_id=repo_id, 
+                filename=selected_file, 
+                local_dir=model_dir,
+                tqdm_class=ProgressTqdm
+            )
+            
+            _notify_progress("ready", 1.0, size_str)
             print(f"Model available at: {path}")
             return path
             
         except Exception as e:
+            _notify_progress("error", -1, str(e))
             print(f"Error resolving model {repo_id}: {e}")
             # Final Fallback: Check if ANY file exists in model_dir
             if existing_files:
@@ -155,8 +260,11 @@ class ModelManager:
             
         if Llama is None:
             raise ImportError("llama-cpp-python is missing")
-            
+        
+        model_name = repo_id.split('/')[-1] if '/' in repo_id else repo_id
         print(f"Loading model: {repo_id}...")
+        _notify_progress("loading", -1, f"Loading {model_name} into GPU...")
+        
         try:
             model_path = cls.ensure_model_path(repo_id)
             
@@ -172,9 +280,11 @@ class ModelManager:
             )
             
             cls._instances[repo_id] = llm
+            _notify_progress("ready", 1.0, f"{model_name} ready")
             print(f"Model {repo_id} loaded successfully.")
             return llm
         except Exception as e:
+            _notify_progress("error", -1, f"Failed to load: {e}")
             print(f"Failed to load model {repo_id}: {e}")
             raise
 

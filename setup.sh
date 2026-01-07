@@ -78,10 +78,24 @@ KRAG_WRAPPER="/usr/local/bin/krag"
 sudo tee "$KRAG_WRAPPER" > /dev/null << KRAG_EOF
 #!/usr/bin/env bash
 INSTALL_DIR="$SCRIPT_DIR"
+
+# Check if directory exists and give helpful error if not (common with external drives)
+if [ ! -d "\$INSTALL_DIR" ]; then
+    echo "❌ Error: KiwixRAG installation directory not found at:"
+    echo "   \$INSTALL_DIR"
+    echo ""
+    echo "👉 If this is on an external drive, please ensure it is MOUNTED."
+    echo "   (Open your file manager and click on the drive to mount it)"
+    echo ""
+    echo "💡 If you moved the installation, re-run setup.sh from the new location."
+    exit 1
+fi
+
 if [ -f "\$INSTALL_DIR/run_chatbot.sh" ]; then
     exec "\$INSTALL_DIR/run_chatbot.sh" "\$@"
 else
-    echo "Error: installation corrupted"
+    echo "❌ Error: run_chatbot.sh not found in \$INSTALL_DIR"
+    echo "   The installation might be corrupted. Try re-running setup.sh"
     exit 1
 fi
 KRAG_EOF

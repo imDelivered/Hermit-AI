@@ -28,10 +28,11 @@ for arg in "$@"; do
     fi
 done
 
-# Launch chatbot GUI (suppress stdout unless debug mode, always show errors)
+# Launch chatbot GUI (suppress verbose stdout unless debug, but ALWAYS show errors)
 if [ "$DEBUG_MODE" = true ]; then
     "$PYTHON_CMD" "$SCRIPT_DIR/run_chatbot.py" "$@"
 else
-    "$PYTHON_CMD" "$SCRIPT_DIR/run_chatbot.py" "$@" > /dev/null
+    # Only suppress stdout, keep stderr visible for errors
+    "$PYTHON_CMD" "$SCRIPT_DIR/run_chatbot.py" "$@" 2>&1 | grep -v "^DEBUG:" || true
 fi
 

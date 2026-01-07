@@ -5,14 +5,160 @@ from tkinter import ttk, scrolledtext, messagebox
 import json
 import subprocess
 import threading
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from urllib.request import Request, urlopen
 
 from chatbot.models import Message, ModelPlatform
 from chatbot.chat import stream_chat, full_chat, build_messages, set_status_callback, retrieve_and_display_links
-from chatbot.chat import stream_chat, full_chat, build_messages, set_status_callback, retrieve_and_display_links
 from chatbot import config
 from chatbot.config import DEFAULT_MODEL
+from chatbot.model_manager import set_download_callback
+
+
+class DownloadProgressDialog:
+    """A modal dialog that shows model download/loading progress."""
+    
+    def __init__(self, parent: tk.Tk, dark_mode: bool = True):
+        self.parent = parent
+        self.dark_mode = dark_mode
+        self.dialog: Optional[tk.Toplevel] = None
+        self.progress_var: Optional[tk.DoubleVar] = None
+        self.status_label: Optional[tk.Label] = None
+        self.detail_label: Optional[tk.Label] = None
+        self.progress_bar: Optional[ttk.Progressbar] = None
+        self._pulse_job: Optional[str] = None
+    
+    def show(self, title: str = "Preparing Model..."):
+        """Show the progress dialog."""
+        if self.dialog:
+            return  # Already showing
+        
+        self.dialog = tk.Toplevel(self.parent)
+        self.dialog.title(title)
+        self.dialog.geometry("400x150")
+        self.dialog.resizable(False, False)
+        self.dialog.transient(self.parent)
+        self.dialog.grab_set()
+        
+        # Center on parent
+        self.dialog.update_idletasks()
+        x = self.parent.winfo_x() + (self.parent.winfo_width() // 2) - 200
+        y = self.parent.winfo_y() + (self.parent.winfo_height() // 2) - 75
+        self.dialog.geometry(f"+{x}+{y}")
+        
+        # Style
+        if self.dark_mode:
+            bg_color = "#2A2A2A"
+            fg_color = "#E0E0E0"
+        else:
+            bg_color = "#FFFFFF"
+            fg_color = "#000000"
+        
+        self.dialog.configure(bg=bg_color)
+        
+        # Main frame
+        frame = tk.Frame(self.dialog, bg=bg_color, padx=20, pady=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Status label (e.g., "Downloading model...")
+        self.status_label = tk.Label(
+            frame, text="Initializing...", font=("Arial", 12, "bold"),
+            bg=bg_color, fg=fg_color
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        # Progress bar
+        style = ttk.Style()
+        style.configure("Download.Horizontal.TProgressbar", 
+                       troughcolor=bg_color, 
+                       background="#4CAF50" if self.dark_mode else "#2196F3")
+        
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(
+            frame, variable=self.progress_var,
+            maximum=100, length=350, mode='determinate',
+            style="Download.Horizontal.TProgressbar"
+        )
+        self.progress_bar.pack(pady=(0, 10))
+        
+        # Detail label (e.g., "Aletheia-3B (2.1 GB)")
+        self.detail_label = tk.Label(
+            frame, text="", font=("Arial", 10),
+            bg=bg_color, fg=fg_color
+        )
+        self.detail_label.pack()
+        
+        # Prevent closing
+        self.dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+    
+    def update(self, status: str, progress: float, detail: str):
+        """Update the progress dialog.
+        
+        Args:
+            status: Current status ("downloading", "loading", "ready", "error")
+            progress: Progress value 0.0-1.0, or -1 for indeterminate
+            detail: Detail text to show
+        """
+        if not self.dialog:
+            return
+        
+        try:
+            # Update status text
+            status_texts = {
+                "checking": "🔍 Checking model availability...",
+                "downloading": "⬇️ Downloading model...",
+                "loading": "🔄 Loading model into GPU...",
+                "ready": "✅ Model ready!",
+                "error": "❌ Error"
+            }
+            self.status_label.config(text=status_texts.get(status, status))
+            
+            # Update progress bar
+            if progress < 0:
+                # Indeterminate mode - pulse animation
+                self.progress_bar.config(mode='indeterminate')
+                if not self._pulse_job:
+                    self._start_pulse()
+            else:
+                # Determinate mode
+                self._stop_pulse()
+                self.progress_bar.config(mode='determinate')
+                self.progress_var.set(progress * 100)
+            
+            # Update detail
+            self.detail_label.config(text=detail)
+            
+            # Force update
+            self.dialog.update_idletasks()
+            
+        except tk.TclError:
+            pass  # Dialog was closed
+    
+    def _start_pulse(self):
+        """Start indeterminate animation."""
+        if self.progress_bar and self.dialog:
+            self.progress_bar.start(15)
+            self._pulse_job = "running"
+    
+    def _stop_pulse(self):
+        """Stop indeterminate animation."""
+        if self.progress_bar and self._pulse_job:
+            try:
+                self.progress_bar.stop()
+            except:
+                pass
+            self._pulse_job = None
+    
+    def hide(self):
+        """Hide and destroy the dialog."""
+        self._stop_pulse()
+        if self.dialog:
+            try:
+                self.dialog.grab_release()
+                self.dialog.destroy()
+            except:
+                pass
+            self.dialog = None
 
 
 class ChatbotGUI:
@@ -159,12 +305,51 @@ class ChatbotGUI:
         self.loading_pulse_step = 0
         self.loading_pulse_direction = 1  # 1 = brightening, -1 = dimming
         
+        # Download progress dialog
+        self.download_dialog: Optional[DownloadProgressDialog] = None
+        self._setup_download_callback()
+        
         self.apply_theme()
         self.root.after(100, lambda: self.input_entry.focus_set())
     
     def update_status(self, text: str):
         """Update status (no-op for minimal UI)."""
         pass
+    
+    def _setup_download_callback(self):
+        """Setup callback to receive download progress from ModelManager."""
+        def on_progress(status: str, progress: float, detail: str):
+            # Use after() to safely update GUI from any thread
+            self.root.after(0, lambda: self._handle_download_progress(status, progress, detail))
+        
+        set_download_callback(on_progress)
+    
+    def _handle_download_progress(self, status: str, progress: float, detail: str):
+        """Handle download progress updates (called on main thread)."""
+        if status in ("checking", "downloading", "loading"):
+            # Show dialog if not already showing
+            if not self.download_dialog:
+                self.download_dialog = DownloadProgressDialog(self.root, self.dark_mode)
+                self.download_dialog.show("Preparing Model...")
+            self.download_dialog.update(status, progress, detail)
+            
+        elif status == "ready":
+            # Hide dialog after a brief delay to show completion
+            if self.download_dialog:
+                self.download_dialog.update(status, 1.0, detail)
+                self.root.after(500, self._hide_download_dialog)
+                
+        elif status == "error":
+            # Show error briefly then hide
+            if self.download_dialog:
+                self.download_dialog.update(status, -1, detail)
+                self.root.after(2000, self._hide_download_dialog)
+    
+    def _hide_download_dialog(self):
+        """Hide the download progress dialog."""
+        if self.download_dialog:
+            self.download_dialog.hide()
+            self.download_dialog = None
     
     def show_loading(self, text: str = "Thinking"):
         """Show loading state in input entry with pulsating text."""

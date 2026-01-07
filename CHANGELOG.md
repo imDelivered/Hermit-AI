@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.2.0] - 2026-01-07
+
+### Added
+- **Model Download Progress Dialog**: New visual dialog shows model download and loading progress in the GUI. No more staring at a blank screen wondering what's happening!
+  - Shows status: "Checking...", "Downloading...", "Loading into GPU..."
+  - Displays model name and file size
+  - Real-time progress updates (fixes issue where progress stayed at 0% until completion)
+  - Animated progress bar (indeterminate for loading, determinate for downloads)
+  - Auto-dismisses when complete
+
+### Improved
+- **External Drive Detection**: The `krag` command now detects when the installation directory is on an unmounted external drive and provides helpful instructions.
+- **Visible Errors**: Errors and warnings are now visible in the terminal by default (previously suppressed to `/dev/null`). Debug-level messages are still filtered in non-debug mode.
+- **Better Error Messages**: Installation errors now include actionable hints (e.g., "If you moved the installation, re-run setup.sh").
+
 ## [2.1.0] - 2025-12-22
 
 ### Added

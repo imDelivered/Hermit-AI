@@ -4,24 +4,24 @@
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
 [![CUDA Accelerated](https://img.shields.io/badge/CUDA-Accelerated-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
->  **A privacy-first, offline AI chatbot** powered by local LLMs and Retrieval-Augmented Generation (RAG). Chat with Wikipedia, documentation, or any ZIM archive — completely offline, 100% private.
+> **A privacy-first, offline AI chatbot** powered by local LLMs and Retrieval-Augmented Generation (RAG). Chat with Wikipedia, documentation, or any ZIM archive — completely offline, 100% private.
 
 **No cloud. No API keys. No data leaves your machine.**
 
 ---
 
-##  Key Features
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔒 **100% Offline** | Runs entirely on your local machine after initial setup |
-| 🧠 **Local LLM** | Uses GGUF models via `llama-cpp-python` — no OpenAI needed |
-| 📚 **Wikipedia RAG** | Chat with offline Wikipedia using [Kiwix ZIM files](https://library.kiwix.org/) |
-| ⚡ **GPU Accelerated** | CUDA support for fast inference on NVIDIA GPUs |
-| 🎯 **Multi-Joint Architecture** | Unique 3-stage reasoning pipeline for accurate answers |
-| 🔍 **Hybrid Search** | Combines keyword (BM25) + semantic (FAISS) retrieval |
-| 🔨 **Forge ZIM Creator** | Build your own knowledge bases from PDF, DOCX, TXT, Markdown |
-| 🛡️ **Privacy First** | Your data never leaves your computer |
+| **100% Offline** | Runs entirely on your local machine after initial setup |
+| **Local LLM** | Uses GGUF models via `llama-cpp-python` — no OpenAI needed |
+| **Wikipedia RAG** | Chat with offline Wikipedia using [Kiwix ZIM files](https://library.kiwix.org/) |
+| **GPU Accelerated** | CUDA support for fast inference on NVIDIA GPUs |
+| **Multi-Joint Architecture** | Unique 3-stage reasoning pipeline for accurate answers |
+| **Hybrid Search** | Combines keyword (BM25) + semantic (FAISS) retrieval |
+| **Forge ZIM Creator** | Build your own knowledge bases from PDF, DOCX, TXT, Markdown |
+| **Privacy First** | Your data never leaves your computer |
 
 ---
 
@@ -109,14 +109,14 @@ Hermit uses a unique **Multi-Joint Architecture** that chains specialized reason
 ```
 
 **Why Multi-Joint?**
-- ✅ Reduces hallucinations by grounding in retrieved facts
-- ✅ Uses specialized small models for each reasoning step
-- ✅ GBNF grammar enforcement ensures valid JSON at every stage
-- ✅ Just-in-time indexing — no pre-processing wait
+- Reduces hallucinations by grounding in retrieved facts
+- Uses specialized small models for each reasoning step
+- GBNF grammar enforcement ensures valid JSON at every stage
+- Just-in-time indexing — no pre-processing wait
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Models
 
@@ -164,27 +164,27 @@ If Hermit uses CPU instead of GPU:
 
 ---
 
-## 🗑️ Uninstallation
+## Uninstallation
 
 ```bash
 ./uninstall.sh
 ```
 
 The GUI uninstaller lets you selectively remove:
-- ✅ Virtual environment
-- ✅ Downloaded models
-- ✅ Search indexes
-- 🛡️ **Your ZIM files are always protected**
+- Virtual environment
+- Downloaded models
+- Search indexes
+- **Your ZIM files are always protected**
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please read the codebase and open a PR.
 
 ---
 
-## 📜 License
+## License
 
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
@@ -192,12 +192,6 @@ See [LICENSE](LICENSE) for details.
 
 ---
 
-## ⭐ Star History
-
-If you find Hermit useful, please give it a star! It helps others discover the project.
-
----
-
 <p align="center">
-  <b>Hermit</b> — Your offline AI companion 🧙‍♂️
+  <b>Hermit</b> — Your offline AI companion
 </p>

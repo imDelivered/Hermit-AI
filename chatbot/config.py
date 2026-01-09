@@ -22,9 +22,10 @@
 OLLAMA_CHAT_URL = "N/A" # Deprecated
 # Local Model Repositories
 MODEL_ALETHEIA_3B = "Ishaanlol/Aletheia-Llama-3.2-3B" 
+MODEL_QWEN_7B = "Qwen/Qwen2.5-7B-Instruct-GGUF"
 
 
-DEFAULT_MODEL = MODEL_ALETHEIA_3B
+DEFAULT_MODEL = MODEL_ALETHEIA_3B  # Switched back to Aletheia for testing
 STRICT_RAG_MODE = True
 DEBUG = False
 

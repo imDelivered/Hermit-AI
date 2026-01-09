@@ -181,6 +181,19 @@ class ModelManager:
                              match_found = True
                              candidate_file = candidate
                              break
+                        elif "Qwen2.5-7B" in repo_name_part or "Qwen2.5" in repo_id:
+                             # For Qwen, look for the split file pattern (use part 1)
+                             if "qwen2.5-7b-instruct" in candidate.lower():
+                                 # Prefer the first part of split files
+                                 if "00001-of-" in candidate or "-00001" in candidate:
+                                     match_found = True
+                                     candidate_file = candidate
+                                     break
+                                 elif not any("00001-of-" in c for c in matches):
+                                     # If no split file, use any gguf
+                                     match_found = True
+                                     candidate_file = candidate
+                                     break
                              
                     if match_found and candidate_file:
                         print(f"Found local cached model: {candidate_file}")

@@ -163,6 +163,7 @@ class RAGSystem:
         self.scorer_joint = None
         self.coverage_joint = None  # Joint 2.5: Coverage Verification
         self.filter_joint = None
+        self.fact_joint = None  # Joint 4: Fact Refinement
         
         # JIT Cache: {(zim_path, article_path): (chunks, embeddings)}
         self.jit_cache = {}
@@ -462,7 +463,7 @@ class RAGSystem:
                 # For comparison queries, increase top_k to ensure we get articles for all entities
                 scorer_top_k = 10 if is_comparison else 7
                 debug_print(f"Using scorer top_k={scorer_top_k} (is_comparison={is_comparison})")
-                scored_titles = self.scorer_joint.score(entity_info, candidate_titles, top_k=scorer_top_k)
+                scored_titles = self.scorer_joint.score(query, entity_info, candidate_titles, top_k=scorer_top_k)
                 
                 # Convert scored titles back to full candidate objects
                 title_to_candidate = {c['metadata']['title']: c for c in candidates}
@@ -965,6 +966,13 @@ class RAGSystem:
                 debug_print(f"  Extracted keywords for title search: {keywords}")
                 
                 hits_map = {} 
+                
+                # Strategy 0 (NEW): Try EXACT query first - handles "Apollo 11", "Guido van Rossum"
+                debug_print(f"RAG:   Trying EXACT phrase title search: '{query}'")
+                results = searcher.suggest(query)
+                if results.getEstimatedMatches() > 0:
+                    self._collect_hits(zim, results, hits_map, full_text, source=current_zim_path)
+                    debug_print(f"RAG:   Exact phrase found {len(hits_map)} hits")
                 
                 # Strategy 1: Individual keywords (Try subjects first) with Singular/Plural Expansion
                 sorted_keywords = sorted(keywords, key=len, reverse=True)

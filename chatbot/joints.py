@@ -194,31 +194,37 @@ class EntityExtractorJoint:
         debug_print("JOINT1:ENTITY", f"Extracting entities from: '{query}'")
         start_time = time.time()
         
-        prompt = f"""You are a precise entity extraction system.
+        prompt = f"""You are a precise entity extraction system optimized for Wikipedia article matching.
 
-    INSTRUCTIONS:
-    1. Identify ALL distinct entities (people, places, things, events) in the query.
-    2. CHECK FOR COMPARISONS: If the user compares items (e.g. "vs", "compare", "difference", "and"), set "is_comparison": true.
-    3. EXTRACT ALIASES: Aliases must be exact synonyms. Do not list related but different people.
+INSTRUCTIONS:
+1. Identify ALL distinct entities (people, places, things, events) in the query.
+2. For each entity, provide the NAME as it would appear as a Wikipedia article title.
+3. CHECK FOR COMPARISONS: If the user compares items (e.g. "vs", "compare", "difference"), set "is_comparison": true.
+4. EXTRACT ALIASES: Include alternative names AND related Wikipedia article titles the entity might appear under.
 
-    Query: "{query}"
+WIKIPEDIA TITLE CONVENTIONS:
+- Full names for people: "Albert Einstein" not "Einstein"
+- Specific names for events: "World War II" not "the war"
+- Disambiguation when needed: "Java (programming language)" for the language
+- For indirect queries (e.g., "who created X"), extract BOTH the person AND the thing created
 
-    CRITICAL RULES:
-    - Return ONLY valid JSON.
-    - NO Markdown code blocks (do not use ```json).
-    - NO conversational filler.
-    - IGNORE generic terms like "guy", "man", "woman", "person", "someone" unless part of a Proper Title.
-    - RAW JSON STRING ONLY.
+Query: "{query}"
 
-    Return this exact JSON structure:
-    {{
-      "is_comparison": true,
-      "entities": [
-        {{"name": "Entity Name", "type": "person|place|event|concept|technology|organization", "aliases": ["valid alias"]}}
-      ],
-      "action": "what the user wants to know"
-    }}
-    """
+CRITICAL RULES:
+- Return ONLY valid JSON.
+- NO Markdown code blocks.
+- Entity names should match Wikipedia article titles exactly when possible.
+- Include short aliases that might also be article titles.
+
+Return this exact JSON structure:
+{{
+  "is_comparison": false,
+  "entities": [
+    {{"name": "Exact Wikipedia Article Title", "type": "person|place|event|concept|technology|organization", "aliases": ["Alternative Title", "Short Form"]}}
+  ],
+  "action": "what the user wants to know"
+}}
+"""
 
         try:
             response = local_inference(self.model, prompt, self.temperature, config.JOINT_TIMEOUT, use_json_grammar=True)
@@ -346,11 +352,12 @@ class ArticleScorerJoint:
         self.temperature = config.SCORER_JOINT_TEMP
         debug_print("JOINT2:INIT", f"ArticleScorer initialized with {self.model}")
     
-    def score(self, entity_info: Dict, article_titles: List[str], top_k: int = 5) -> List[Tuple[str, float]]:
+    def score(self, query: str, entity_info: Dict, article_titles: List[str], top_k: int = 5) -> List[Tuple[str, float]]:
         """
-        Score article titles by relevance to entities.
+        Score article titles by relevance to entities and the original query.
         
         Args:
+            query: Original user query for context
             entity_info: Entity information from EntityExtractorJoint (new multi-entity format)
             article_titles: List of Wikipedia article titles
             top_k: Return top K scored articles
@@ -409,27 +416,30 @@ class ArticleScorerJoint:
         action = entity_info.get('action', 'information about')
         
         prompt = f"""I will give you a list of Article Titles.
-        You must select the ones relevant to ANY of these entities: {entities_str}
-        The user wants to: {action}
         
-        RULES:
-        1. ONLY select titles from the provided INPUT LIST below.
-        2. DO NOT output example titles.
-        3. Output valid JSON only.
-        4. For COMPARISON queries, include articles for ALL mentioned entities.
+USER'S ORIGINAL QUESTION: "{query}"
+
+Select articles relevant to answering this question.
+Entities mentioned: {entities_str}
         
-        INPUT LIST:
-        {articles_formatted}
+RULES:
+1. ONLY select titles from the provided INPUT LIST below.
+2. DO NOT output example titles.
+3. Output valid JSON only.
+4. Prioritize articles that directly answer the user's question.
         
-        Rate each article 0-10 where:
-        - 10 = Perfect match for one of the queried entities
-        - 7-9 = Highly relevant to one of the entities
-        - 0 = Not relevant to any entity
+INPUT LIST:
+{articles_formatted}
         
-        Return ONLY a JSON array:
-        [
-          {{"title": "Actual Title From List", "score": 10}}
-        ]"""
+Rate each article 0-10 where:
+- 10 = Directly relevant to answering the user's question
+- 7-9 = Highly relevant to the entities or topic
+- 0 = Not relevant
+        
+Return ONLY a JSON array:
+[
+  {{"title": "Actual Title From List", "score": 10}}
+]"""
 
         try:
             response = local_inference(self.model, prompt, self.temperature, config.JOINT_TIMEOUT, use_json_grammar=True)

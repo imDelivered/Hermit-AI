@@ -142,7 +142,15 @@ class ModelManager:
         print(f"Checking model availability for: {repo_id}")
         
         # Search strategy: Q5_K_M > Q4_K_M > Q8_0 > Q4_0
+        # Search strategy: Q5_K_M > Q4_K_M > Q8_0 > Q4_0
         preferences = ["Q5_K_M", "Q4_K_M", "Q8_0", "Q4_0"]
+        
+        # 0. DIRECT FILE CHECK (Fast Path for manually downloaded models)
+        # If repo_id looks like a filename (ends in .gguf) and exists, just use it.
+        direct_path = os.path.join(model_dir, repo_id)
+        if repo_id.lower().endswith(".gguf") and os.path.exists(direct_path):
+             print(f"Loading local model directly: {direct_path}")
+             return direct_path
         
         # 0. Fast Path: Check if we have a matching GGUF in the local dir
         # We search for files containing the repo name (or part of it) and the quant
@@ -304,6 +312,23 @@ class ModelManager:
         _notify_progress("loading", -1, f"Loading {model_name} into GPU...")
         
         try:
+            # API MODE CHECK
+            if config.API_MODE:
+                print(f"DEBUG: API Mode Enabled. Connecting to {config.API_BASE_URL}...")
+                from chatbot.api_client import OpenAIClientWrapper
+                
+                # Use configured API details
+                client = OpenAIClientWrapper(
+                    base_url=config.API_BASE_URL,
+                    api_key=config.API_KEY,
+                    model_name=config.API_MODEL_NAME
+                )
+                
+                # Cache it so we don't re-init (though it's cheap)
+                cls._instances[repo_id] = client
+                _notify_progress("ready", 1.0, f"API: {config.API_MODEL_NAME}")
+                return client
+
             model_path = cls.ensure_model_path(repo_id)
             
             # Load with GPU offload

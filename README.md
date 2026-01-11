@@ -61,19 +61,19 @@ instead of just doing a basic vector search, hermit chains a few small models to
 │  User Query: "How did the Roman Empire fall?"                       │
 ├─────────────────────────────────────────────────────────────────────┤
 │  [Joint 1] Entity Extraction                                        │
-│     → Extracts: "Roman Empire", "fall", "decline"                  │
+│     → Extracts: "Roman Empire", "fall", "decline"                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │  [Retrieval] Hybrid Search (BM25 + FAISS)                           │
-│     → Finds 15 candidate articles from ZIM file                    │
+│     → Finds 15 candidate articles from ZIM file                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │  [Joint 2] Article Scoring                                          │
-│     → Scores articles 0-10, selects top 5                          │
+│     → Scores articles 0-10, selects top 5                           │
 ├─────────────────────────────────────────────────────────────────────┤
 │  [Joint 3] Chunk Filtering                                          │
-│     → Extracts most relevant paragraphs                            │
+│     → Extracts most relevant paragraphs                             │
 ├─────────────────────────────────────────────────────────────────────┤
 │  [Generation] Final Answer                                          │
-│     → LLM synthesizes answer from verified facts                   │
+│     → LLM synthesizes answer from verified facts                    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,16 +111,3 @@ hermit is using cpu instead of gpu:
 ```bash
 ./setup.sh  # re-run to fix broken packages
 ```
-
----
-
-### roadmap
-- [ ] openai-compatible endpoint support (so you can use your own llama-server/ollama/whatever).
-- [ ] support for more document formats in forge.
-- [ ] adaptive rag (skipping joints for simple questions).
-
-### license
-licensed under **agpl v3**. see [LICENSE](LICENSE) for the full text.
-
----
-made with <3 for the offline-first community.

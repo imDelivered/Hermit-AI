@@ -15,3 +15,6 @@ llama-cpp-python
 numpy
 tqdm
 requests
+
+# GUI
+tkinterdnd2

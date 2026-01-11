@@ -72,11 +72,12 @@ def stream_chat(model: str, messages: List[dict]) -> Iterable[str]:
         
         token_count = 0
         for chunk in stream:
-            delta = chunk['choices'][0]['delta']
-            if 'content' in delta:
-                content = delta['content']
-                token_count += 1
-                yield content
+            delta = chunk.get('choices', [{}])[0].get('delta', {})
+            if 'content' in delta and delta['content'] is not None:
+                content = str(delta['content'])  # Ensure it's a string
+                if content:  # Only yield non-empty strings
+                    token_count += 1
+                    yield content
                 
         debug_print(f"Stream complete. Total tokens: {token_count}")
             

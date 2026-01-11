@@ -29,6 +29,12 @@ DEFAULT_MODEL = MODEL_ALETHEIA_3B  # Switched back to Aletheia for testing
 STRICT_RAG_MODE = True
 DEBUG = False
 
+# API / External Model Configuration
+API_MODE = False  # If True, use external API instead of local GGUF
+API_BASE_URL = "http://localhost:1234/v1"  # Default (LM Studio / Ollama)
+API_KEY = "lm-studio"  # Often ignored by local servers but required by spec
+API_MODEL_NAME = "local-model"  # Passed in API request
+
 # Multi-Joint RAG System Configuration
 USE_JOINTS = True
 

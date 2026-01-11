@@ -192,8 +192,19 @@ class ChatbotGUI:
         
         self.tk = tk
         self.ttk = ttk
-        self.messagebox = messagebox
         self.scrolledtext = scrolledtext
+        
+        # Override standard messagebox with theme-aware custom dialogs
+        try:
+             # Inline logic to avoid circular imports if file not ready, though we just wrote it.
+             # Actually, simpler to paste logic here or import if possible.
+             # Let's import from the new file.
+             from chatbot.custom_dialogs import StyledMessageBox
+             self.messagebox = StyledMessageBox(self)
+        except ImportError:
+             print("Warning: Could not load custom dialogs, falling back to native.")
+             self.messagebox = messagebox
+
         
         self.model = model or DEFAULT_MODEL
         self.system_prompt = system_prompt or config.SYSTEM_PROMPT
@@ -440,15 +451,46 @@ class ChatbotGUI:
         self.loading_animation_id = self.root.after(60, self._animate_loading_pulse)
     
     def get_installed_models(self) -> List[Tuple[str, ModelPlatform]]:
-        """Get list of supported local models from config."""
+        """Get list of supported local models from config and shared_models directory."""
         models: List[Tuple[str, ModelPlatform]] = []
         
-        # Add models from config
-
+        # 1. Add models explicitly defined in Config
         if hasattr(config, 'MODEL_ALETHEIA_3B'):
             models.append((config.MODEL_ALETHEIA_3B, ModelPlatform.LOCAL))
             
-        return models
+        # 2. Scan shared_models directory for manually downloaded GGUFs
+        import os
+        import glob
+        
+        # Determine shared_models path relative to this file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        shared_models_dir = os.path.join(project_root, "shared_models")
+        
+        # We only look for .gguf files
+        if os.path.exists(shared_models_dir):
+            gguf_files = glob.glob(os.path.join(shared_models_dir, "*.gguf"))
+            # Sort by modification time (newest first) for convenience
+            gguf_files.sort(key=os.path.getmtime, reverse=True)
+            
+            for file_path in gguf_files:
+                filename = os.path.basename(file_path)
+                # Avoid duplicates if they match the config model exactly
+                # (Config model usually is a repo_id, filename is, well, a filename)
+                
+                # We use the filename as the unique ID for these User-Downloaded models
+                # This works if we update ModelManager to handle filenames as inputs
+                models.append((filename, ModelPlatform.LOCAL))
+                
+        # Deduplicate by name just in case
+        unique_models = []
+        seen = set()
+        for m, p in models:
+            if m not in seen:
+                unique_models.append((m, p))
+                seen.add(m)
+                
+        return unique_models
     
     def show_model_menu(self):
         """Show model selection menu."""
@@ -460,27 +502,16 @@ class ChatbotGUI:
             )
             return
         
+        # NOTE: self.tk.Toplevel now automatically inherits *Background/*Foreground
+        # from options_add set in apply_theme(), so minimal explicit config is needed.
         model_window = self.tk.Toplevel(self.root)
         model_window.title("Select Model")
         model_window.geometry("500x600")
         model_window.transient(self.root)
         model_window.grab_set()
         
-        if self.dark_mode:
-            bg_color = "#000000"
-            fg_color = "#E0E0E0"
-            select_bg = "#333333"
-            select_fg = "#FFFFFF"
-            button_bg = "#2a2a2a"
-            button_fg = "#E0E0E0"
-        else:
-            bg_color = "#FFFFFF"
-            fg_color = "#000000"
-            select_bg = "lightblue"
-            select_fg = "#000000"
-            button_bg = "#F0F0F0"
-            button_fg = "#000000"
-        
+        # Explicitly configure bg for container window to be safe, though option_add handles children
+        bg_color = "#2A2A2A" if self.dark_mode else "#FFFFFF"
         model_window.configure(bg=bg_color)
         
         title_label = self.ttk.Label(model_window, text="Select Model", font=("Arial", 14, "bold"))
@@ -495,14 +526,14 @@ class ChatbotGUI:
         scrollbar = self.ttk.Scrollbar(listbox_frame)
         scrollbar.pack(side=self.tk.RIGHT, fill=self.tk.Y)
         
+        # Listbox will inherit colors from option_add in apply_theme
         model_listbox = self.tk.Listbox(
             listbox_frame,
             font=("Arial", 11),
-            bg=bg_color, fg=fg_color,
-            selectbackground=select_bg, selectforeground=select_fg,
+            selectbackground="#333333" if self.dark_mode else "lightblue",
+            selectforeground="#FFFFFF" if self.dark_mode else "#000000",
             yscrollcommand=scrollbar.set,
-            activestyle="none", borderwidth=0, highlightthickness=1,
-            highlightbackground=button_bg
+            activestyle="none", borderwidth=0, highlightthickness=1
         )
         model_listbox.pack(side=self.tk.LEFT, fill=self.tk.BOTH, expand=True)
         scrollbar.config(command=model_listbox.yview)
@@ -544,13 +575,56 @@ class ChatbotGUI:
                     self.model = new_model
                     self.root.title(f"Chatbot - {new_model} ({'Link Mode' if self.link_mode else 'Response Mode'})")
                     self.append_message("system", f"Model changed to: {new_model}")
+                    self.update_status(f"Model: {new_model}")
                 model_window.destroy()
         
         def cancel():
             model_window.destroy()
         
+        def delete_model():
+            selection = model_listbox.curselection()
+            if not selection:
+                self.messagebox.showwarning("No Selection", "Please select a model to delete.")
+                return
+            
+            selected_idx = selection[0]
+            model_id = model_list[selected_idx]
+            
+            # Only allow deletion of local .gguf files, not config-defined models
+            if not model_id.lower().endswith(".gguf"):
+                self.messagebox.showwarning("Cannot Delete", "Only downloaded GGUF files can be deleted.\nConfig-defined models cannot be removed from here.")
+                return
+            
+            # Confirm deletion
+            confirm = self.tk.messagebox.askyesno(
+                "Confirm Delete",
+                f"Delete model file:\n{model_id}\n\nThis cannot be undone."
+            )
+            if not confirm:
+                return
+            
+            # Actually delete the file
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            file_path = os.path.join(project_root, "shared_models", model_id)
+            
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    self.append_message("system", f"Deleted: {model_id}")
+                    # Refresh list
+                    model_listbox.delete(selected_idx)
+                    model_list.pop(selected_idx)
+                else:
+                    self.messagebox.showerror("Error", f"File not found:\n{file_path}")
+            except Exception as e:
+                self.messagebox.showerror("Delete Failed", f"Could not delete file:\n{e}")
+        
         select_btn = self.ttk.Button(button_frame, text="Select", command=select_model, style="Accent.TButton")
         select_btn.pack(side=self.tk.LEFT, padx=5)
+        delete_btn = self.ttk.Button(button_frame, text="Delete", command=delete_model)
+        delete_btn.pack(side=self.tk.LEFT, padx=5)
         cancel_btn = self.ttk.Button(button_frame, text="Cancel", command=cancel)
         cancel_btn.pack(side=self.tk.LEFT, padx=5)
         
@@ -573,6 +647,96 @@ class ChatbotGUI:
         model_listbox.bind("<KeyPress>", on_listbox_key)
         model_window.bind("<KeyPress>", on_window_key)
         model_listbox.focus_set()
+
+        # Separator
+        self.ttk.Separator(model_window, orient='horizontal').pack(fill='x', pady=15)
+
+        # Download Section
+        dl_frame = self.ttk.Frame(model_window)
+        dl_frame.pack(fill='x', padx=20, pady=(0, 20))
+
+        self.ttk.Label(dl_frame, text="Download New Models (GGUF Only)", font=("Arial", 11, "bold")).pack(anchor='w')
+        self.ttk.Label(dl_frame, text="Hermit requires GGUF format. Look for repos with 'GGUF' in the name.", font=("Arial", 9)).pack(anchor='w', pady=(0, 5))
+        
+        search_frame = self.ttk.Frame(dl_frame)
+        search_frame.pack(fill='x', pady=5)
+        
+        search_var = self.tk.StringVar()
+        search_entry = self.tk.Entry(search_frame, textvariable=search_var) # Global theme applies here
+        search_entry.pack(side='left', fill='x', expand=True, padx=(0, 5))
+        
+        # Placeholder logic for search entry
+        search_entry.insert(0, "TheBloke/Mistral-7B-Instruct-v0.2-GGUF")
+        def on_focus_in(e):
+             if "GGUF" in search_entry.get() and "/" in search_entry.get():
+                 # Only clear if it's the placeholder-like format
+                 if search_entry.get() == "TheBloke/Mistral-7B-Instruct-v0.2-GGUF":
+                     search_entry.delete(0, 'end')
+        def on_focus_out(e):
+             if not search_entry.get():
+                search_entry.insert(0, "TheBloke/Mistral-7B-Instruct-v0.2-GGUF")
+        
+        search_entry.bind("<FocusIn>", on_focus_in)
+        search_entry.bind("<FocusOut>", on_focus_out)
+
+        def download_action():
+            repo_id = search_var.get().strip()
+            if not repo_id or repo_id == "TheBloke/Mistral-7B-Instruct-v0.2-GGUF":
+                self.messagebox.showwarning("Input Required", "Please enter a Hugging Face Repo ID.\n\nExample: TheBloke/Llama-2-7B-Chat-GGUF")
+                return
+            
+            # Warn if it doesn't look like a GGUF repo
+            if "gguf" not in repo_id.lower():
+                warn = self.tk.messagebox.askyesno(
+                    "Warning: Possibly Incompatible",
+                    f"The repo '{repo_id}' does not contain 'GGUF' in its name.\n\n"
+                    "Hermit ONLY works with GGUF format models.\n"
+                    "Non-GGUF models (SafeTensors, MLX, etc.) will NOT work.\n\n"
+                    "Continue anyway?"
+                )
+                if not warn:
+                    return
+
+            # Confirm download
+            confirm = self.tk.messagebox.askyesno(
+                "Confirm Download",
+                f"Download {repo_id}?\n\nThe system will find the best Q4_K_M or similar quantization."
+            )
+            if not confirm:
+                return
+            
+            model_window.destroy()
+            self._start_model_download(repo_id)
+
+        self.ttk.Button(search_frame, text="⬇️ Download", command=download_action).pack(side='right')
+
+    def _start_model_download(self, repo_id: str):
+        """Handle the background download process."""
+        self.append_message("system", f"Starting download for {repo_id}...")
+        
+        def run_dl():
+            try:
+                # Use ModelManager's existing logic to 'ensure' path, which triggers download
+                from chatbot.model_manager import ModelManager
+                # We force a fresh download check essentially by calling ensure_model_path
+                # Note: ModelManager might need specific file patterns if generic repo is given.
+                # Ideally ModelManager handles 'user/repo' by finding best GGUF.
+                
+                # Check if ModelManager has a smart downloader or we rely on default file spec.
+                # If the user just gave a repo, we might need to be smart.
+                # For now, let's assume ModelManager handles standard logic.
+                
+                path = ModelManager.ensure_model_path(repo_id)
+                self.root.after(0, lambda: self.append_message("system", f"✅ Download complete: {repo_id}"))
+                self.root.after(0, lambda: self.update_status(f"Installed: {repo_id}"))
+                
+                # Trigger a refresh of the model menu (optional, or just ready for next use)
+                
+            except Exception as e:
+                 self.root.after(0, lambda: self.messagebox.showerror("Download Error", f"Failed to download {repo_id}:\n{e}"))
+                 self.root.after(0, lambda: self.append_message("system", f"❌ Download failed: {e}"))
+        
+        threading.Thread(target=run_dl, daemon=True).start()
     
     def apply_theme(self):
         """Apply dark/light theme."""
@@ -589,6 +753,19 @@ class ChatbotGUI:
             button_fg = "#FFFFFF"
             border_color = "#444444"
             concept_color = "#81D4FA"
+            
+            # Global option database for consistency across all standard widgets
+            self.root.option_add("*Background", bg_color)
+            self.root.option_add("*Foreground", fg_color)
+            self.root.option_add("*Entry.Background", input_bg)
+            self.root.option_add("*Entry.Foreground", input_fg)
+            self.root.option_add("*Listbox.Background", input_bg)
+            self.root.option_add("*Listbox.Foreground", input_fg)
+            self.root.option_add("*Text.Background", bg_color)
+            self.root.option_add("*Text.Foreground", fg_color)
+            self.root.option_add("*Button.Background", button_bg)
+            self.root.option_add("*Button.Foreground", button_fg)
+            
         else:
             bg_color = "#FFFFFF"
             fg_color = "#000000"
@@ -599,8 +776,17 @@ class ChatbotGUI:
             button_fg = "#000000"
             border_color = "#CCCCCC"
             concept_color = "#0277BD"
-        
+            
+            # Global option database for Light mode
+            self.root.option_add("*Background", bg_color)
+            self.root.option_add("*Foreground", fg_color)
+            self.root.option_add("*Entry.Background", input_bg)
+            self.root.option_add("*Entry.Foreground", input_fg)
+            self.root.option_add("*Listbox.Background", input_bg)
+            self.root.option_add("*Listbox.Foreground", input_fg)
+
         self.root.configure(bg=bg_color)
+
         style.configure(".", background=bg_color, foreground=fg_color, font=("Arial", 10))
         style.configure("TFrame", background=bg_color)
         style.configure("TLabel", background=bg_color, foreground=fg_color)
@@ -695,7 +881,7 @@ class ChatbotGUI:
         suggestions: List[str] = []
         text_lower = text.lower()
         
-        commands = ["/help", "/exit", "/clear", "/dark", "/model", "/response", "/links"]
+        commands = ["/help", "/exit", "/clear", "/dark", "/model", "/status", "/response", "/links", "/api", "/forge"]
         
         if text.startswith("/"):
             for cmd in commands:
@@ -1313,6 +1499,15 @@ Keyboard Shortcuts:
             self.root.title(f"Chatbot - {self.model} (Link Mode)")
             self.append_message("system", "Switched to Link Mode")
             return
+        if user_input.lower() == "/status":
+            self.show_status_dialog()
+            return
+        if user_input.lower() in ["/api", "/connect"]:
+            self.show_api_config_dialog()
+            return
+        if user_input.lower() == "/forge":
+            self.show_forge_dialog()
+            return
         
         # Add to history and get response
         self.history.append(Message(role="user", content=user_input))
@@ -1392,6 +1587,397 @@ Keyboard Shortcuts:
             self.root.after(0, self.hide_loading)
             self.messagebox.showerror("Error", f"Failed to get response: {e}")
     
+    def show_api_config_dialog(self):
+        """Show dialog to configure external API."""
+        dialog = self.tk.Toplevel(self.root)
+        dialog.title("External API Configuration")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        if self.dark_mode:
+            dialog.configure(bg="#2A2A2A")
+            style_prefix = ""
+        else:
+            dialog.configure(bg="#FFFFFF")
+            style_prefix = ""
+            
+        # Variables (referencing config directly for simplicity in this session, 
+        # ideally should use vars and save back)
+        api_mode_var = self.tk.BooleanVar(value=config.API_MODE)
+        url_var = self.tk.StringVar(value=config.API_BASE_URL)
+        key_var = self.tk.StringVar(value=config.API_KEY)
+        model_var = self.tk.StringVar(value=config.API_MODEL_NAME)
+        
+        main_frame = self.ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill=self.tk.BOTH, expand=True)
+        
+        # Enable Toggle
+        self.ttk.Checkbutton(
+            main_frame, text="Enable External API Mode (LM Studio / Ollama)", 
+            variable=api_mode_var
+        ).pack(anchor=self.tk.W, pady=(0, 20))
+        
+        # Grid layout for inputs
+        input_frame = self.ttk.Frame(main_frame)
+        input_frame.pack(fill=self.tk.X, pady=10)
+        
+        # Custom Entry Style Helper
+        def create_entry(parent, var):
+            entry = self.tk.Entry(
+                parent, textvariable=var,
+                font=("Arial", 11),
+                bg="#1E1E1E" if self.dark_mode else "#FFFFFF",
+                fg="#FFFFFF" if self.dark_mode else "#000000",
+                insertbackground="#FFFFFF" if self.dark_mode else "#000000", # Cursor color
+                relief=self.tk.FLAT, borderwidth=1,
+                highlightthickness=1,
+                highlightbackground="#444444" if self.dark_mode else "#CCCCCC",
+                highlightcolor="#808080" if self.dark_mode else "#666666"
+            )
+            return entry
+
+        self.ttk.Label(input_frame, text="Base URL:").grid(row=0, column=0, sticky=self.tk.W, pady=5)
+        # self.ttk.Entry(input_frame, textvariable=url_var, width=40).grid(row=0, column=1, padx=10, pady=5)
+        create_entry(input_frame, url_var).grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        
+        self.ttk.Label(input_frame, text="(e.g. http://localhost:1234/v1)").grid(row=1, column=1, sticky=self.tk.W, padx=10)
+        
+        self.ttk.Label(input_frame, text="API Key:").grid(row=2, column=0, sticky=self.tk.W, pady=5)
+        # self.ttk.Entry(input_frame, textvariable=key_var, width=40).grid(row=2, column=1, padx=10, pady=5)
+        create_entry(input_frame, key_var).grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+        
+        self.ttk.Label(input_frame, text="Model Name:").grid(row=3, column=0, sticky=self.tk.W, pady=5)
+        # self.ttk.Entry(input_frame, textvariable=model_var, width=40).grid(row=3, column=1, padx=10, pady=5)
+        create_entry(input_frame, model_var).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+        
+        # Test Connection Button
+        status_label = self.ttk.Label(main_frame, text="")
+        status_label.pack(pady=5)
+        
+        def test_connection():
+            status_label.config(text="Connecting...", foreground="orange")
+            dialog.update()
+            try:
+                from chatbot.api_client import OpenAIClientWrapper
+                client = OpenAIClientWrapper(url_var.get(), key_var.get(), model_var.get())
+                # Quick test
+                resp = client.create_chat_completion(
+                    messages=[{"role": "user", "content": "hi"}],
+                    max_tokens=5
+                )
+                if resp:
+                    status_label.config(text="✓ Connection Successful!", foreground="green")
+                else:
+                    status_label.config(text="✗ Empty Response", foreground="red")
+            except Exception as e:
+                status_label.config(text=f"✗ Error: {str(e)}", foreground="red")
+        
+        self.ttk.Button(main_frame, text="Test Connection", command=test_connection).pack(pady=10)
+        
+        # Save/Cancel
+        btn_frame = self.ttk.Frame(main_frame)
+        btn_frame.pack(fill=self.tk.X, pady=20, side=self.tk.BOTTOM)
+        
+        def save():
+            config.API_MODE = api_mode_var.get()
+            config.API_BASE_URL = url_var.get()
+            config.API_KEY = key_var.get()
+            config.API_MODEL_NAME = model_var.get()
+            
+            # Reset ModelManager to force reload next time
+            from chatbot.model_manager import ModelManager
+            ModelManager.close_all()
+            
+            mode_str = "External API" if config.API_MODE else "Local Internal"
+            self.append_message("system", f"Configuration saved. Switched to {mode_str} Mode.")
+            if config.API_MODE:
+                self.model = config.API_MODEL_NAME
+                self.root.title(f"Chatbot - API: {self.model} ({'Link Mode' if self.link_mode else 'Response Mode'})")
+            
+            dialog.destroy()
+            
+        self.ttk.Button(btn_frame, text="Save & Apply", command=save, style="Accent.TButton").pack(side=self.tk.RIGHT)
+        self.ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=self.tk.RIGHT, padx=10)
+
+    def show_status_dialog(self):
+        """Show system status summary."""
+        # AI Backend Status
+        if config.API_MODE:
+             backend_type = "External API"
+             backend_detail = f"URL: {config.API_BASE_URL}\nKey: {'*' * len(config.API_KEY) if config.API_KEY else 'None'}"
+        else:
+             backend_type = "Local (GGUF)"
+             backend_detail = "Engine: llama-cpp-python"
+
+        model_status = f"Model: {self.model}"
+        
+        # RAG Status
+        # We need to peek into chat module to get global rag
+        rag_status = "Inactive"
+        rag_detail = "No index loaded."
+        
+        from chatbot.chat import get_rag_system
+        rag = get_rag_system()
+        
+        if rag:
+            rag_status = "Active"
+            count_docs = len(rag.indexed_paths) if rag.indexed_paths else 0
+            count_chunks = len(rag.doc_chunks) if rag.doc_chunks else 0
+            rag_detail = f"JIT Index: {count_docs} articles ({count_chunks} chunks)\n" \
+                         f"Encoder: {rag.model_name}"
+            if rag.faiss_index:
+                 rag_detail += f"\nVectors: {rag.faiss_index.ntotal}"
+
+        msg = (
+            f"=== SYSTEM STATUS ===\n\n"
+            f"AI BACKEND: {backend_type}\n"
+            f"{backend_detail}\n"
+            f"{model_status}\n\n"
+            f"KNOWLEDGE BASE (RAG): {rag_status}\n"
+            f"{rag_detail}\n\n"
+            f"GUI Mode: {'Link Search' if self.link_mode else 'Chat Response'}\n"
+            f"Theme: {'Dark' if self.dark_mode else 'Light'}"
+        )
+        
+        self.messagebox.showinfo("System Status", msg)
+
+    def show_forge_dialog(self):
+        """Show the Forge ZIM creator dialog with drag-and-drop support."""
+        import tkinter as tk
+        from tkinter import scrolledtext, filedialog, messagebox
+        import sys
+        import os
+        
+        # Import forge module components
+        try:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            from forge import DocumentParser, ZIMCreator, LIBZIM_AVAILABLE
+        except ImportError as e:
+            self.messagebox.showerror("Forge Unavailable", f"Could not load Forge:\n{e}")
+            return
+        
+        if not LIBZIM_AVAILABLE:
+            self.messagebox.showerror("Missing Dependency", "libzim not installed.\npip install libzim")
+            return
+        
+        # Try TkinterDnD - create completely standalone window
+        dnd_available = False
+        try:
+            from tkinterdnd2 import TkinterDnD, DND_FILES
+            root = TkinterDnD.Tk()
+            dnd_available = True
+        except ImportError:
+            root = tk.Tk()
+        
+        root.title("🔨 Hermit Forge")
+        root.geometry("550x450")
+        
+        # Position near main app
+        try:
+            root.geometry(f"+{self.root.winfo_x() + 50}+{self.root.winfo_y() + 50}")
+        except:
+            pass
+        
+        # Dark theme
+        bg = "#1E1E1E"
+        fg = "#E0E0E0"
+        accent = "#5865F2"
+        input_bg = "#2A2A2A"
+        btn_bg = "#333333"
+        
+        root.configure(bg=bg)
+        
+        # State
+        files_list = []
+        extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.epub'}
+        
+        # --- UI ---
+        
+        # Title
+        tk.Label(root, text="Hermit Forge", font=("Arial", 18, "bold"), bg=bg, fg=fg).pack(pady=(15, 5))
+        
+        # Drop zone frame
+        drop_frame = tk.Frame(root, bg="#252525", highlightbackground="#444", highlightthickness=2)
+        drop_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # Drop zone content (centered)
+        if dnd_available:
+            tk.Label(drop_frame, text="[+]", font=("Arial", 40), bg="#252525", fg=fg).pack(pady=(30, 5))
+            status_label = tk.Label(drop_frame, text="Drop files here or use buttons below", font=("Arial", 14), bg="#252525", fg=fg)
+        else:
+            tk.Label(drop_frame, text="[+]", font=("Arial", 40), bg="#252525", fg=fg).pack(pady=(30, 5))
+            status_label = tk.Label(drop_frame, text="Use buttons below to add files", font=("Arial", 14), bg="#252525", fg=fg)
+        status_label.pack()
+        count_label = tk.Label(drop_frame, text="", font=("Arial", 11, "bold"), bg="#252525", fg=accent)
+        count_label.pack(pady=(10, 20))
+        
+        def update_count():
+            if files_list:
+                count_label.config(text=f"✓ {len(files_list)} files ready")
+                status_label.config(text="Drop more or click Accept")
+            else:
+                count_label.config(text="")
+                status_label.config(text="Drop files here")
+        
+        def add_path(path):
+            from pathlib import Path
+            p = Path(path)
+            added = 0
+            if p.is_file() and p.suffix.lower() in extensions:
+                if str(p) not in files_list:
+                    files_list.append(str(p))
+                    added = 1
+            elif p.is_dir():
+                for f in p.rglob("*"):
+                    if f.is_file() and f.suffix.lower() in extensions:
+                        if str(f) not in files_list:
+                            files_list.append(str(f))
+                            added += 1
+            return added
+        
+        def on_drop(event):
+            data = event.data
+            log_text.config(state=tk.NORMAL)
+            log_text.insert(tk.END, f"DEBUG: Drop event received\n")
+            log_text.insert(tk.END, f"DEBUG: Raw data = {repr(data)}\n")
+            log_text.config(state=tk.DISABLED)
+            
+            # Parse paths (handle braces for paths with spaces)
+            if '{' in data:
+                import re
+                paths = re.findall(r'\{([^}]+)\}', data)
+                rest = re.sub(r'\{[^}]+\}', '', data).strip()
+                if rest:
+                    paths.extend(rest.split())
+            else:
+                paths = data.split()
+            
+            log_text.config(state=tk.NORMAL)
+            log_text.insert(tk.END, f"DEBUG: Parsed {len(paths)} paths: {paths}\n")
+            log_text.config(state=tk.DISABLED)
+            
+            total = 0
+            for p in paths:
+                added = add_path(p)
+                log_text.config(state=tk.NORMAL)
+                log_text.insert(tk.END, f"DEBUG: Path '{p}' -> added {added} files\n")
+                log_text.config(state=tk.DISABLED)
+                total += added
+            
+            update_count()
+            if total > 0:
+                log_text.config(state=tk.NORMAL)
+                log_text.insert(tk.END, f"SUCCESS: Dropped {total} files\n")
+                log_text.see(tk.END)
+                log_text.config(state=tk.DISABLED)
+            else:
+                log_text.config(state=tk.NORMAL)
+                log_text.insert(tk.END, f"WARNING: No valid files found in drop\n")
+                log_text.see(tk.END)
+                log_text.config(state=tk.DISABLED)
+        
+        # Register drag-drop on the root window
+        if dnd_available:
+            try:
+                root.drop_target_register(DND_FILES)
+                root.dnd_bind('<<Drop>>', on_drop)
+                log_text.config(state=tk.NORMAL)
+                log_text.insert(tk.END, "DEBUG: Drag-drop registered successfully\n")
+                log_text.config(state=tk.DISABLED)
+            except Exception as e:
+                dnd_available = False
+                log_text.config(state=tk.NORMAL)
+                log_text.insert(tk.END, f"DEBUG: Drag-drop registration failed: {e}\n")
+                log_text.config(state=tk.DISABLED)
+        
+        # Output filename
+        out_frame = tk.Frame(root, bg=bg)
+        out_frame.pack(fill=tk.X, padx=20, pady=5)
+        tk.Label(out_frame, text="Output:", bg=bg, fg=fg).pack(side=tk.LEFT)
+        out_var = tk.StringVar(value="knowledge.zim")
+        tk.Entry(out_frame, textvariable=out_var, bg=input_bg, fg=fg, insertbackground=fg, relief=tk.FLAT, width=25).pack(side=tk.LEFT, padx=5)
+        
+        # Button row
+        btn_frame = tk.Frame(root, bg=bg)
+        btn_frame.pack(fill=tk.X, padx=20, pady=5)
+        
+        def pick_files():
+            sel = filedialog.askopenfilenames(filetypes=[("Supported", "*.txt *.md *.pdf *.docx *.html *.epub")])
+            for f in sel:
+                add_path(f)
+            update_count()
+        
+        def pick_folder():
+            folder = filedialog.askdirectory()
+            if folder:
+                add_path(folder)
+                update_count()
+        
+        def clear_all():
+            files_list.clear()
+            update_count()
+        
+        tk.Button(btn_frame, text="Add Files", command=pick_files, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text="Add Folder", command=pick_folder, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text="Clear", command=clear_all, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
+        
+        # Log
+        log_text = scrolledtext.ScrolledText(root, height=3, bg=input_bg, fg=fg, state=tk.DISABLED, font=("Consolas", 9))
+        log_text.pack(fill=tk.X, padx=20, pady=5)
+        
+        if dnd_available:
+            log_text.config(state=tk.NORMAL)
+            log_text.insert(tk.END, "✓ Drag-drop ready! Drop files anywhere.\n")
+            log_text.config(state=tk.DISABLED)
+        else:
+            log_text.config(state=tk.NORMAL)
+            log_text.insert(tk.END, "Use buttons to add files.\n")
+            log_text.config(state=tk.DISABLED)
+        
+        # Action row
+        action_frame = tk.Frame(root, bg=bg)
+        action_frame.pack(fill=tk.X, padx=20, pady=(5, 15))
+        
+        def do_create():
+            if not files_list:
+                messagebox.showwarning("No Files", "Add files first!")
+                return
+            
+            out_path = out_var.get()
+            from pathlib import Path
+            title = Path(out_path).stem.replace("_", " ").title()
+            
+            log_text.config(state=tk.NORMAL)
+            log_text.insert(tk.END, f"Creating {out_path}...\n")
+            log_text.config(state=tk.DISABLED)
+            root.update()
+            
+            try:
+                creator = ZIMCreator(out_path, title)
+                for fp in files_list:
+                    doc = DocumentParser.parse_file(fp)
+                    if doc:
+                        creator.add_document(doc)
+                zim_path = creator.create()
+                size = os.path.getsize(zim_path) / (1024 * 1024)
+                
+                messagebox.showinfo("Done!", f"Created {os.path.basename(zim_path)}\n{len(creator.documents)} docs, {size:.1f} MB")
+                self.append_message("system", f"Forge: {os.path.basename(zim_path)} ({len(creator.documents)} docs)")
+                root.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+        
+        tk.Button(action_frame, text="Cancel", command=root.destroy, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT)
+        tk.Button(action_frame, text="Accept & Create", command=do_create, bg=accent, fg="#FFF", font=("Arial", 11, "bold"), relief=tk.FLAT, padx=15, pady=5).pack(side=tk.RIGHT)
+        
+        root.bind("<Escape>", lambda e: root.destroy())
+        root.bind("<Return>", lambda e: do_create())
+        
+        root.mainloop()
+
     def run(self):
         """Start the GUI."""
         self.root.mainloop()

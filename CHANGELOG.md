@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [2.7.2] - 2026-01-14
+
+### Changed
+- **Modularized Joints Architecture**: Refactored the monolithic `joints.py` into a proper Python package (`chatbot/joints/`). Each joint is now in its own file for better maintainability and lighter imports.
+- **Default Model**: Switched default from `Qwen-7B` (split GGUF) to `Aletheia-3B` (single file) for improved compatibility and stability.
+- **Reduced Context Window**: Lowered `DEFAULT_CONTEXT_SIZE` from 16384 to 8192 to prevent VRAM exhaustion on 12GB GPUs.
+- **Embedding on CPU**: Moved the SentenceTransformer encoder to CPU, freeing VRAM for the main LLM.
+
+### Fixed
+- **VRAM OOM Crash**: Added `torch.cuda.empty_cache()` call to force GPU memory release when switching between models, preventing "Failed to create llama_context" errors.
+- **Joint Inference Bug**: Fixed broken `local_inference()` function in `joints/base.py` that was calling a non-existent `ModelManager.generate()` method.
+- **ZIM Archive Caching**: Added persistent caching of the ZIM archive object in `RAGSystem` to prevent repeated file open/close operations during JIT indexing.
+- **Config Attribute Error**: Fixed `FactRefinementJoint` referencing non-existent `REFINEMENT_JOINT_MODEL` config key.
+
 ## [2.7.1] - 2026-01-14
 
 ### Fixed

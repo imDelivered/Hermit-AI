@@ -26,9 +26,10 @@ MODEL_QWEN_1_5B = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"  # "Fast" Model
 MODEL_QWEN_7B = "Qwen/Qwen2.5-7B-Instruct-GGUF"      # "Smart" Model
 
 
-DEFAULT_MODEL = MODEL_QWEN_7B  # Switched back to Aletheia for testing
-STRICT_RAG_MODE = True
-DEBUG = False
+DEFAULT_MODEL = MODEL_ALETHEIA_3B  # Using 3B model (single GGUF file for reliability)
+STRICT_RAG_MODE = False
+MIN_ARTICLE_SCORE = 2.5
+DEBUG = True
 
 # API / External Model Configuration
 API_MODE = False  # If True, use external API instead of local GGUF
@@ -62,10 +63,10 @@ FACT_JOINT_TEMP = 0.0
 JOINT_TIMEOUT = 30 # Increased for 7B model generation
 
 # Adaptive RAG Configuration
-ADAPTIVE_THRESHOLD = 4.0  # If max score is below this, trigger expansion
+ADAPTIVE_THRESHOLD = 3.0  # Lowered to trigger fewer expansions when data is present
 
 # Global Context Window Configuration
-DEFAULT_CONTEXT_SIZE = 16384
+DEFAULT_CONTEXT_SIZE = 8192
 
 SYSTEM_PROMPT = (
     "You are a helpful, thorough AI assistant. When provided with context, "

@@ -57,8 +57,8 @@ def stream_chat(model: str, messages: List[dict]) -> Iterable[str]:
     
     try:
         # Get model instance (caching handled by manager)
-        # Use global config context or default to 16384
-        n_ctx = getattr(config, 'DEFAULT_CONTEXT_SIZE', 16384)
+        # Use global config context or default to 8192 (safe for 12GB VRAM)
+        n_ctx = getattr(config, 'DEFAULT_CONTEXT_SIZE', 8192)
         llm = ModelManager.get_model(model, n_ctx=n_ctx)
         
         debug_print("Starting local generation stream...")
@@ -167,7 +167,7 @@ def get_rag_system():
         if zims:
             zim_file = os.path.abspath(zims[0])
         
-        if os.path.exists("data/index/faiss.index") or zim_file:
+        if os.path.exists("data/indices/content_index.faiss") or os.path.exists("data/indices/title_index.faiss") or zim_file:
             try:
                 print(f"Initializing RAG system (Hybrid/Fast)...")
                 if zim_file:
@@ -358,10 +358,13 @@ def build_messages(system_prompt: str, history: List[Message], user_query: str =
                                    "Reply EXACTLY with: 'I do not have enough information in my knowledge base to answer this question.'"
                 else:
                     debug_print("STRICT_RAG_MODE=False, will use general knowledge")
-                    context_text = "\n[SYSTEM NOTICE]: No relevant documents found in the local index. Answering based on general knowledge.\n"
+                    context_text = "\n[SYSTEM NOTICE]: No relevant documents found in the local index. Please use your general knowledge and any partial matches in the context to provide the most helpful answer possible, while maintaining factual accuracy.\n"
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
             print(f"RAG retrieval error: {e}")
             debug_print(f"RAG retrieval exception: {type(e).__name__}: {e}")
+            debug_print(f"Full traceback:\n{error_trace}")
     else:
         debug_print(f"Skipping RAG retrieval: rag={rag is not None}, query_text={bool(query_text)}, should_retrieve={intent.should_retrieve}")
 
@@ -377,7 +380,8 @@ def build_messages(system_prompt: str, history: List[Message], user_query: str =
                    f"4. HANDLE CONFLICTS: If context has conflicting info, state BOTH sides clearly.\n" \
                    f"5. SYNTHESIZE: Combine the context with your knowledge to provide a complete, accurate answer.\n" \
                    f"6. ANSWER THE QUESTION DIRECTLY: If asked 'where was X born?', answer with a LOCATION. If asked 'when?', answer with a DATE. Do not provide tangential information.\n" \
-                   f"7. FOR COMPARISONS: You MUST discuss BOTH entities being compared, not just one."
+                   f"7. FOR COMPARISONS: You MUST discuss BOTH entities being compared, not just one.\n" \
+                   f"8. BE HELPFUL: If the context is partial or the match is not perfect, try to infer the answer or use related information to help the user instead of simply refusing."
 
     # [FIX] Answer Reinforcement for Multi-hop Queries
     if results:

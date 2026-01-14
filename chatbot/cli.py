@@ -43,7 +43,7 @@ class ChatbotCLI(cmd.Cmd):
         print(f"Initializing RAG System (Model: {model_name})...")
         try:
             self.rag = RAGSystem()
-            self.rag.load_resources()
+            # self.rag.load_resources() # Handled in __init__
             
             # Inject our RAG instance into the chat module so it doesn't try to reload it
             import chatbot.chat

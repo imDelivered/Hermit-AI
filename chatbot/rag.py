@@ -38,6 +38,7 @@ class RAGSystem:
         self.zim_path = zim_path
         self.encoder = None
         self.model_name = 'all-MiniLM-L6-v2'
+        self.zim_archive = None
         
         # In-memory storage
         self.faiss_index = None # JIT Index (Vectors)
@@ -66,10 +67,9 @@ class RAGSystem:
         self.title_meta_path = os.path.join(index_dir, "title_meta.pkl")
 
         # Initialize SentenceTransformer early (lazy load usually, but we need it for everything)
-        import torch
-        device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
-            self.encoder = SentenceTransformer(self.model_name, device=device)
+            # Move encoder to CPU to save VRAM for the main LLM.
+            self.encoder = SentenceTransformer(self.model_name, device="cpu")
         except Exception as e:
             print(f"Failed to load embedding model: {e}")
 
@@ -225,9 +225,7 @@ class RAGSystem:
 
         # Ensure encoder is loaded
         if not self.encoder:
-             import torch
-             device = "cuda" if torch.cuda.is_available() else "cpu"
-             self.encoder = SentenceTransformer(self.model_name, device=device)
+             self.encoder = SentenceTransformer(self.model_name, device="cpu")
 
         print(f"\\nProcessing Query: '{query}'")
         
@@ -315,7 +313,7 @@ class RAGSystem:
                      t = cand['metadata']['title']
                      if t in scored_map:
                          cand['score'] = scored_map[t]
-                         if cand['score'] >= 4.0:
+                         if cand['score'] >= getattr(config, 'MIN_ARTICLE_SCORE', 4.0):
                              final_candidates.append(cand)
                              
                  final_candidates.sort(key=lambda x: x.get('score', 0), reverse=True)
@@ -531,7 +529,10 @@ class RAGSystem:
             
         results = []
         try:
-            zim = libzim.Archive(zim_path)
+            if not self.zim_archive:
+                debug_print(f"Opening ZIM archive: {zim_path}")
+                self.zim_archive = libzim.Archive(zim_path)
+            zim = self.zim_archive
             
             # 1. Semantic Title Search (Preferred)
             if self.title_faiss_index and self.title_metadata and self.encoder:

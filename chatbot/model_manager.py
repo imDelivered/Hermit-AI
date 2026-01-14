@@ -189,19 +189,21 @@ class ModelManager:
                              match_found = True
                              candidate_file = candidate
                              break
-                        elif "Qwen2.5-7B" in repo_name_part or "Qwen2.5" in repo_id:
-                             # For Qwen, look for the split file pattern (use part 1)
+                        elif "Qwen2.5-7B" in repo_id:
                              if "qwen2.5-7b-instruct" in candidate.lower():
-                                 # Prefer the first part of split files
                                  if "00001-of-" in candidate or "-00001" in candidate:
                                      match_found = True
                                      candidate_file = candidate
                                      break
                                  elif not any("00001-of-" in c for c in matches):
-                                     # If no split file, use any gguf
                                      match_found = True
                                      candidate_file = candidate
                                      break
+                        elif "Qwen2.5-1.5B" in repo_id:
+                             if "qwen2.5-1.5b-instruct" in candidate.lower():
+                                 match_found = True
+                                 candidate_file = candidate
+                                 break
                              
                     if match_found and candidate_file:
                         # [FIX] Verify all shards if it's a split file
@@ -346,6 +348,16 @@ class ModelManager:
             # Force garbage collection to ensure VRAM is released
             cls._instances.clear()
             gc.collect()
+            
+            # Force CUDA to release memory (critical for OOM prevention)
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    print("CUDA memory cache cleared.")
+            except Exception:
+                pass  # torch might not be available
             
         if Llama is None:
             raise ImportError("llama-cpp-python is missing")

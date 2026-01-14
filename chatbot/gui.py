@@ -590,11 +590,12 @@ class ChatbotGUI:
                 
                 # Filter out non-primary shards of split models
                 # Only show: single-file models OR the first shard (-00001-of-XXXXX)
+                # Support both 5-digit (00001) and variable-length (0001, 001) formats
                 import re
-                shard_match = re.search(r'-(\d{5})-of-(\d{5})\.gguf$', filename)
+                shard_match = re.search(r'-(\d+)-of-(\d+)\.gguf$', filename)
                 if shard_match:
-                    shard_num = shard_match.group(1)
-                    if shard_num != "00001":
+                    shard_num = int(shard_match.group(1))
+                    if shard_num != 1:
                         # Skip non-primary shards (00002, 00003, etc.)
                         continue
                 
@@ -667,8 +668,31 @@ class ChatbotGUI:
         for model_name, platform in models:
             # Create friendly display name
             display_name = model_name.split('/')[-1] if '/' in model_name else model_name
-            if "Aletheia" in display_name:
+            
+            # Remove shard suffixes from split models for cleaner display
+            import re
+            display_name = re.sub(r'-(\d+)-of-(\d+)\.gguf$', '.gguf', display_name)
+            
+            # Apply human-readable labels for known model families
+            if "Aletheia" in display_name or "aletheia" in display_name:
                 display_name = "Aletheia 3B (Fast)"
+            elif "qwen2.5-7b" in display_name.lower():
+                # Extract quantization if present
+                quant_match = re.search(r'(q\d+_k_[msl]|q[2-8]_0)', display_name, re.IGNORECASE)
+                quant = quant_match.group(1).upper() if quant_match else "Unknown"
+                display_name = f"Qwen 2.5 7B ({quant})"
+            elif "qwen2.5-1.5b" in display_name.lower() or "qwen2.5-1b" in display_name.lower():
+                quant_match = re.search(r'(q\d+_k_[msl]|q[2-8]_0)', display_name, re.IGNORECASE)
+                quant = quant_match.group(1).upper() if quant_match else "Unknown"
+                display_name = f"Qwen 2.5 1.5B ({quant})"
+            elif "llama-3.2-3b" in display_name.lower():
+                quant_match = re.search(r'(q\d+_k_[msl]|q[2-8]_0)', display_name, re.IGNORECASE)
+                quant = quant_match.group(1).upper() if quant_match else "Unknown"
+                display_name = f"Llama 3.2 3B ({quant})"
+            elif "llama-3" in display_name.lower() and "8b" in display_name.lower():
+                quant_match = re.search(r'(q\d+_k_[msl]|q[2-8]_0)', display_name, re.IGNORECASE)
+                quant = quant_match.group(1).upper() if quant_match else "Unknown"
+                display_name = f"Llama 3 8B ({quant})"
                 
             model_listbox.insert(self.tk.END, display_name)
             model_list.append(model_name)

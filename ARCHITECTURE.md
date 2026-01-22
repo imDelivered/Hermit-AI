@@ -122,7 +122,7 @@ this is a tradeoff between speed and accuracy. the small model is fast enough th
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      FINAL GENERATION                                    │
-│                        (8B model)                                        │
+│                        (any GGUF model)                                       │
 │                                                                          │
 │  Context: "Guido van Rossum studied at the University of Amsterdam..."  │
 │  Response: "Guido van Rossum, the creator of Python, attended the       │

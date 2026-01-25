@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HermitContext Blackboard**: New shared state manager (`chatbot/state.py`) that coordinates all joints and enables the dynamic orchestration layer.
 - **Multi-Hop Resolution**: Full implementation of the MultiHopResolverJoint for handling indirect entity references (e.g., "creator of Python" → "Guido van Rossum" → second-hop search).
 
+## [3.1.1] - 2026-01-25
+
+### Fixed
+- **Setup Script Robustness**: Major improvements to `setup.sh` to prevent silent failures and hang-ups.
+  - **Visible Progress**: Removed output suppression for system updates and downloads so users can see what is happening.
+  - **Retry Logic**: Added automatic retries for large downloads (PyTorch) to handle network fluctuations.
+  - **Pre-built Wheels**: Switched to using pre-built wheels for `llama-cpp-python` (CUDA 12.1) to avoid fragile local compilation from source.
+  - **Error Trapping**: Added strict error trapping to print the exact line number if the script fails.
+
 ### Changed
 - **Model Tier Optimization**: Switched to unified 1.5B model for fast joints to eliminate model swapping overhead, providing 3-5x faster orchestration.
 - **Documentation Overhaul**: Rewrote README in a personal, human voice. Moved technical architecture details to new `ARCHITECTURE.md` essay with ASCII schematics.

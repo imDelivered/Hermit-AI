@@ -26,8 +26,8 @@ find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # 1. System Packages
 echo "[1/5] Checking System Prerequisites..."
-sudo apt update -qq || echo "⚠️ Warning: apt update failed."
-sudo apt install -y python3 python3-venv python3-full python3-tk python3-libzim curl cmake build-essential > /dev/null 2>&1
+sudo apt update || echo "⚠️ Warning: apt update failed, but proceeding..."
+sudo apt install -y python3 python3-venv python3-full python3-tk python3-libzim curl cmake build-essential
 echo "✓ System packages verified"
 
 # 2. Virtual Environment
@@ -40,23 +40,50 @@ fi
 # Upgrade pip
 ./venv/bin/pip install --upgrade pip
 
+# Trap errors
+trap 'echo "❌ Error on line $LINENO. Check setup.log for details."; exit 1' ERR
+
 # 3. GPU support (PyTorch CUDA 12.1 - pinned for stability)
 echo "[3/5] Installing PyTorch with CUDA support..."
-./venv/bin/pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 >> setup.log 2>&1
+# Retry logic for large downloads
+max_retries=3
+count=0
+while [ $count -lt $max_retries ]; do
+    if ./venv/bin/pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 2>&1 | tee -a setup.log; then
+        break
+    fi
+    count=$((count+1))
+    echo "⚠️ Download failed, retrying ($count/$max_retries)..."
+    sleep 2
+done
+if [ $count -eq $max_retries ]; then
+    echo "❌ Failed to install PyTorch after retries."
+    exit 1
+fi
 echo "✓ PyTorch (CUDA) installed"
 
 # 4. Core Dependencies
 echo "[4/5] Installing Project Dependencies..."
-./venv/bin/pip install -r requirements.txt >> setup.log 2>&1
+# Install everything except llama-cpp-python first to avoid unoptimized builds
+grep -v "llama-cpp-python" requirements.txt > requirements_temp.txt
+./venv/bin/pip install -r requirements_temp.txt 2>&1 | tee -a setup.log
+rm requirements_temp.txt
 
-echo "[4.5/5] Compiling llama-cpp-python..."
+echo "[4.5/5] Installing llama-cpp-python..."
 if command -v nvidia-smi &> /dev/null; then
-    echo "  -> NVIDIA GPU detected. Building with CUDA support..."
-    CMAKE_ARGS="-DGGML_CUDA=on" ./venv/bin/pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir >> setup.log 2>&1
+    echo "  -> NVIDIA GPU detected. Installing with CUDA support..."
+    # Use pre-built wheels for reliability (avoiding local compilation issues)
+    ./venv/bin/pip install llama-cpp-python \
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
+        --upgrade --force-reinstall --no-cache-dir 2>&1 | tee -a setup.log || \
+    {
+        echo "  -> Wheel install failed, falling back to source build..."
+        CMAKE_ARGS="-DGGML_CUDA=on" ./venv/bin/pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir 2>&1 | tee -a setup.log
+    }
     echo "✓ llama-cpp-python (CUDA) installed"
 else
     echo "  -> No NVIDIA GPU detected. Installing CPU-only version..."
-    ./venv/bin/pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir >> setup.log 2>&1
+    ./venv/bin/pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir 2>&1 | tee -a setup.log
     echo "✓ llama-cpp-python (CPU) installed"
 fi
 

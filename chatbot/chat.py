@@ -62,6 +62,7 @@ def stream_chat(model: str, messages: List[dict]) -> Iterable[str]:
         llm = ModelManager.get_model(model, n_ctx=n_ctx)
         
         debug_print("Starting local generation stream...")
+        _update_status("Reading context (Processing Prompt)...")
         stream = llm.create_chat_completion(
             messages=messages,
             stream=True,
@@ -129,6 +130,7 @@ def full_chat(model: str, messages: List[dict]) -> str:
         n_ctx = getattr(config, 'DEFAULT_CONTEXT_SIZE', 16384)
         llm = ModelManager.get_model(model, n_ctx=n_ctx)
         
+        _update_status("Reading context (Processing Prompt)...")
         resp = llm.create_chat_completion(
             messages=messages,
             stream=False,
@@ -280,8 +282,8 @@ def build_messages(system_prompt: str, history: List[Message], user_query: str =
         debug_print(f"Conditions met for RAG retrieval: rag={rag is not None}, query_text='{query_text}', should_retrieve={intent.should_retrieve}")
         try:
             _update_status("Searching knowledge base")
-            debug_print(f"Calling rag.retrieve with query='{query_text}', top_k=4")
-            results = rag.retrieve(query_text, top_k=4)
+            debug_print(f"Calling rag.retrieve with query='{query_text}', top_k=3")
+            results = rag.retrieve(query_text, top_k=3)
             _update_status("Processing results")
             debug_print(f"RAG retrieve returned {len(results)} results")
             
@@ -289,7 +291,7 @@ def build_messages(system_prompt: str, history: List[Message], user_query: str =
                 debug_print("Processing RAG results...")
                 context_text = "\n\n=== REFERENCE INFORMATION ===\n"
                 total_context_chars = 0
-                max_context_chars = 16000 # ~4000 tokens, leaving plenty for generation
+                max_context_chars = 10000  # ~2500 tokens, leaving headroom for 8K context
                 
                 for i, r in enumerate(results, 1):
                     meta = r['metadata']
